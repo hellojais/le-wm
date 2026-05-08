@@ -1,4 +1,63 @@
 
+# 🎱 Billiards Domain Extension — by Santosh Jaiswal (hellojais)
+
+This fork extends the original LeWM repository with
+a complete research study applying world models to
+a custom 2D billiards environment.
+
+## What's new in this fork
+
+| Addition | Description |
+|---|---|
+| `experiments/billiards/` | Four planning experiments with full evaluation pipeline |
+| `config/train/billiards_small.yaml` | Optimised config (embed_dim=32, λ=0.01) for simple domains |
+| `config/train/data/billiards.yaml` | Billiards dataset config (96×96, flat HDF5) |
+| `results/` | GIFs, t-SNE plots, training curves, probe results |
+| `FINDINGS.md` | Complete research findings |
+| `SETUP_NOTES.md` | Step-by-step setup for Apple Silicon M5 Max |
+| MPS fixes in `train.py` | Apple Silicon compatibility |
+
+## Key findings
+
+- Pure JEPA embedding-based planning **failed** on billiards
+- Root cause: velocity poorly encoded (R²=0.33) vs position (R²=0.988)
+- State-based hybrid planning **succeeded** on novel cross-episode combinations
+- Reduced embed_dim (192→32) improved prediction 2.6× but didn't fix planning
+- Finding mirrors LeWM paper's Two-Room limitation — low intrinsic dimensionality
+
+## Results
+
+| Approach | Combo A | Combo B | Notes |
+|---|---|---|---|
+| JEPA embedding CEM (192 dims) | ❌ FAIL | ❌ FAIL | Flat embedding landscape |
+| JEPA embedding CEM (32 dims) | ❌ FAIL | ❌ FAIL | Better prediction, same issue |
+| State-based CEM | ✅ SUCCESS | ✅ SUCCESS | 9 and 13 steps |
+| Probe-based CEM | ❌ FAIL | ❌ FAIL | Position known, velocity unknown |
+
+![Training Curves](results/training_curves.png)
+![t-SNE Latent Space](results/tsne_billiards.png)
+![Planning Results](results/planning_results.png)
+
+## Dataset and Model
+
+- 📊 Dataset: [billiards-worldmodel on HuggingFace](https://huggingface.co/datasets/hellojais/billiards-worldmodel)
+- 🤖 Model: [lewm-billiards on HuggingFace](https://huggingface.co/hellojais/lewm-billiards)
+- 🎮 Game: [billiards-worldmodel on GitHub](https://github.com/hellojais/billiards-worldmodel)
+
+## Credits
+
+Original LeWM by:
+Lucas Maes, Quentin Leroux, Gauthier Gidel, Glen Berseth
+Mila / McGill University (2025)
+[arXiv:2603.19312](https://arxiv.org/abs/2603.19312)
+[Original repo](https://github.com/lucas-maes/le-wm)
+
+---
+
+(Original README below)
+
+---
+
 # LeWorldModel
 ### Stable End-to-End Joint-Embedding Predictive Architecture from Pixels
 
