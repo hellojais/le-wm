@@ -4,7 +4,7 @@
 
 ```bash
 # Clone and enter the repo
-cd /Users/santoshj/Documents_local/personal/personal_projects
+cd ~/your-projects-folder
 
 # Create a venv for le-wm
 python3 -m venv le-wm/.venv
@@ -52,7 +52,7 @@ Make sure your dataset (`billiards_expert_train.h5`) is in the stable-worldmodel
 cache directory (or symlinked there), then run:
 
 ```bash
-cd /Users/santoshj/Documents_local/personal/personal_projects/le-wm
+cd ~/your-projects-folder/le-wm
 source .venv/bin/activate
 
 # Train with billiards data config (MPS auto-detected by train.py)
@@ -83,7 +83,7 @@ Key config differences vs the default PushT run:
 ## 4. Evaluate the Trained Model
 
 ```bash
-cd /Users/santoshj/Documents_local/personal/personal_projects/le-wm
+cd ~/your-projects-folder/le-wm
 source .venv/bin/activate
 
 python eval.py \
