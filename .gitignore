@@ -1,0 +1,12 @@
+outputs/
+__pycache__/
+*.pyc
+.env
+.venv/
+*.ckpt
+*.h5
+wandb/
+.hydra/
+*.egg-info/
+/lewm
+test_*.h5
