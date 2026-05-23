@@ -9,23 +9,32 @@ a custom 2D billiards environment.
 
 | Addition | Description |
 |---|---|
-| `experiments/billiards/` | Four planning experiments with full evaluation pipeline |
+| `experiments/billiards/` | Six experiments: four planning + two architecture ablations |
 | `config/train/billiards_small.yaml` | Optimised config (embed_dim=32, λ=0.01) for simple domains |
+| `config/train/billiards_mamba.yaml` | Mamba predictor training config |
+| `config/train/billiards_framestacking.yaml` | 9-channel frame-stacking training config |
 | `config/train/data/billiards.yaml` | Billiards dataset config (96×96, flat HDF5) |
-| `results/` | GIFs, t-SNE plots, training curves, probe results |
+| `module_mamba.py` | Pure PyTorch S6 Mamba predictor (MPS-compatible) |
+| `data_framestacking.py` | 9-channel frame-stacking dataset wrapper |
+| `results/` | GIFs, t-SNE plots, training curves, probe results, 3-way comparison |
 | `FINDINGS.md` | Complete research findings |
 | `SETUP_NOTES.md` | Step-by-step setup for Apple Silicon M5 Max |
 | MPS fixes in `train.py` | Apple Silicon compatibility |
 
 ## Key findings
 
-- Pure JEPA embedding-based planning **failed** on billiards
-- Root cause: velocity poorly encoded (R²=0.33) vs position (R²=0.988)
-- State-based hybrid planning **succeeded** on novel cross-episode combinations
-- Reduced embed_dim (192→32) improved prediction 2.6× but didn't fix planning
-- Finding mirrors LeWM paper's Two-Room limitation — low intrinsic dimensionality
+- Pure JEPA embedding-based planning **failed** on billiards across all cost functions
+- Root cause: velocity barely encoded (R²≈0.30) vs position (R²=0.983)
+- **Ablation — Mamba predictor:** stateful architecture makes no difference (vel R²=0.297, +0.3%)
+- **Ablation — Frame stacking (9-channel input):** target-ball velocity R² jumps to 0.77, but position R² collapses from 0.983 → 0.579
+- **Core discovery — JEPA representational eviction:** with explicit motion signal available, the JEPA objective trades position encoding for velocity encoding. Confirmed by 1000-epoch extended probe — information is genuinely absent, not a probe artifact.
+- Fundamental conflict: JEPA's single objective cannot simultaneously satisfy next-state predictability (training) and goal-relevant spatial completeness (planning)
+- State-based CEM **succeeded** in 9–13 steps — the task is plannable; only the learned model is the obstacle
+- Finding mirrors LeWM paper's Two-Room limitation — single prediction objective is insufficient for goal-directed planning
 
 ## Results
+
+**Planning experiments (Combo A = same-episode, Combo B = cross-episode):**
 
 | Approach | Combo A | Combo B | Notes |
 |---|---|---|---|
@@ -33,6 +42,14 @@ a custom 2D billiards environment.
 | JEPA embedding CEM (32 dims) | ❌ FAIL | ❌ FAIL | Better prediction, same issue |
 | State-based CEM | ✅ SUCCESS | ✅ SUCCESS | 9 and 13 steps |
 | Probe-based CEM | ❌ FAIL | ❌ FAIL | Position known, velocity unknown |
+
+**Architecture ablations (representation quality, 300-epoch probe):**
+
+| Model | vel R² | pos R² (tgt) | val/pred_loss | Finding |
+|---|---|---|---|---|
+| Transformer (baseline) | 0.296 | 0.983 | 0.0035 | reference |
+| Mamba predictor | 0.297 | 0.983 | 0.0034 | architecture not the bottleneck |
+| Frame stacking (9-channel) | 0.286 | 0.579 | 0.0087 | JEPA eviction: tgt vel ↑ 0.77, position ↓ 0.58 |
 
 ![Training Curves](results/training_curves.png)
 ![t-SNE Latent Space](results/tsne_billiards.png)
