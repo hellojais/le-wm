@@ -429,6 +429,128 @@ approximate model is worthless for planning regardless of cost function design.
 
 ---
 
+## Extended Experiments: Isolating the Root Cause
+
+### Experiment 5 — Mamba Predictor (Stateful Architecture)
+
+**Hypothesis:** The velocity encoding gap is architectural — the Transformer
+predictor's fixed 3-frame window can't accumulate velocity history. A Mamba
+predictor with persistent hidden state should fix it.
+
+**Setup:** Replaced ARPredictor (Transformer) with a pure PyTorch S6 Mamba
+implementation (MPS-compatible). All other settings identical to
+`billiards_small` config (`embed_dim=32`, `lr=5e-5`, 10 epochs).
+
+**Results (three-way comparison, consistent 300ep/1000-frame probe):**
+
+| Metric | Transformer | Mamba | Change |
+|---|---|---|---|
+| val/pred_loss | 0.0035 | 0.0034 | −3.1% |
+| velocity R² (mean, 4 dims) | 0.296 | 0.297 | +0.3% |
+| position R² (tgt mean) | 0.983 | 0.983 | ≈0% |
+
+**Conclusion:** Architecture is NOT the bottleneck. Velocity R² improved by
+only 0.3% — statistically negligible and within probe noise. The bottleneck
+is upstream of the predictor, in the encoder or the objective itself.
+
+---
+
+### Experiment 6 — Frame Stacking (9-channel input)
+
+**Hypothesis:** The ViT encoder processes frames independently, so velocity
+is only implicit in the 3-frame history context. Stacking frames [t−2, t−1, t]
+as 9 input channels gives the encoder explicit optical flow — velocity should
+be directly visible in the first layer.
+
+**Setup:** Stacked frames [t−2, t−1, t] as 9 channels. ViT encoder
+re-initialised with `num_channels=9` (no pretrained weights). All other
+settings identical to `billiards_small` config. Best checkpoint: epoch 7
+(`val/pred_loss=0.005935`).
+
+**Results (consistent short probe — 300 epochs, 1000 frames — same as Exp 5):**
+
+| Metric | Transformer | Frame Stack | Change |
+|---|---|---|---|
+| val/pred_loss | 0.0035 | 0.0087 | +149% worse |
+| velocity R² (mean, 4 dims) | 0.296 | 0.286 | −3.4% |
+| target velocity R² (tgt_vx + tgt_vy mean) | 0.319 | 0.399 | +0.080 |
+| cue velocity R² (cue_vx + cue_vy mean) | 0.273 | 0.174 | −0.099 |
+| position R² (tgt mean) | 0.983 | 0.579 | −0.404 |
+
+**Extended probe diagnostic — FrameStack only (1000 epochs, 5000 frames):**
+
+To distinguish "probe didn't converge" from "information is not in the
+embedding," the probe was re-run with 5× more data and 3× more epochs on the
+FrameStack model only. Position R² plateaued at 0.590 — only +0.011 above the
+short-probe result of 0.579 — confirming the information is genuinely absent.
+
+The extended probe also reveals full per-dimension specialisation:
+
+| Dimension | Transformer (short probe) | Frame Stack (extended probe) | Δ |
+|---|---|---|---|
+| tgt_vx | 0.336 | 0.771 | +0.435 |
+| tgt_vy | 0.301 | 0.753 | +0.452 |
+| cue_vx | 0.297 | 0.048 | −0.249 |
+| cue_vy | 0.249 | 0.074 | −0.175 |
+| tgt_x | 0.988 | 0.484 | −0.504 |
+| tgt_y | 0.978 | 0.697 | −0.281 |
+
+*Note: FrameStack values above are from the 1000-epoch extended probe; the
+short-probe equivalents for FrameStack are tgt_vx=0.372, tgt_vy=0.426,
+cue_vx=0.186, cue_vy=0.161, showing the same directional pattern but at
+lower magnitude due to probe underfitting.*
+
+**Key finding: JEPA's prediction objective creates representational eviction
+under motion-signal pressure.**
+
+With explicit optical flow available via 9-channel input, the JEPA loss rewards
+encoding target ball velocity over absolute position — because velocity is more
+predictive of the next embedding. The model made a rational optimisation choice
+that destroys goal-directed planning capability.
+
+Specifically:
+- Target ball velocity (struck by the expert) → maximised (R²≈0.76)
+- Cue ball velocity (already supplied via `action_encoder`) → evicted (R²≈0.06)
+- Absolute ball positions → partially evicted (R²≈0.58 vs 0.98 baseline)
+
+The short probe confirms the directional effect is real; the extended probe
+confirms it is not a probe artifact — the information is genuinely absent from
+the 32-dimensional embedding.
+
+---
+
+## Unified Summary Across All Six Experiments
+
+All velocity and position R² values below are from the three-way comparison
+script (`compare_predictors.py`, 300-epoch / 1000-frame probe, seed=42).
+Extended probe results for Exp 6 are noted separately.
+
+| Experiment | Key change | vel R² (mean) | pos R² (tgt) | Finding |
+|---|---|---|---|---|
+| Exp 2 — Small model (baseline) | embed_dim=32 | 0.296 (300ep probe) | 0.983 | reference |
+| Exp 5 — Mamba predictor | stateful architecture | 0.297 | 0.983 | not the bottleneck |
+| Exp 6 — Frame stacking | 9-channel input | 0.286 (short probe) | 0.579 | eviction discovered |
+| Exp 6 — Extended probe | better evaluation | 0.412 (1000ep/5000fr) | 0.590 | eviction confirmed |
+
+**The root cause is a fundamental tension in JEPA's single prediction objective:**
+
+JEPA optimises for next-embedding predictability. In visually simple environments
+with explicit motion signal, velocity becomes MORE predictive than position. The
+model rationally evicts position encoding in favour of velocity encoding — which
+destroys the spatial structure needed for goal-directed planning.
+
+This is not a failure of JEPA per se. It is a precise boundary condition:
+JEPA's single objective cannot simultaneously optimise for:
+
+1. **Next-state predictability** (training objective)
+2. **Goal-relevant spatial completeness** (planning requirement)
+
+In Push-T, these objectives align — position IS highly predictive of the next
+position. In billiards with frame stacking, they diverge: the struck ball's
+velocity overwhelms the planning-critical absolute position signal.
+
+---
+
 ## Implementation Notes
 
 - All experiments run on Apple Silicon M5 Max (MPS backend).
