@@ -72,13 +72,27 @@ def run(cfg):
     #########################
 
     _ds_cfg = {k: v for k, v in cfg.data.dataset.items() if k != 'name'}
-    dataset = swm.data.load_dataset(
-        str(Path.home() / '.stable-wm' / f"{cfg.data.dataset.name}.h5"),
-        transform=None,
-        **_ds_cfg,
-    )
-    transforms = [get_img_preprocessor(
-        source='pixels', target='pixels', img_size=cfg.img_size)]
+    _h5_path = str(Path.home() / '.stable-wm' / f"{cfg.data.dataset.name}.h5")
+    _use_frame_stacking = cfg.get("use_frame_stacking", False)
+
+    if _use_frame_stacking:
+        from data_framestacking import FrameStackingDataset
+        dataset = FrameStackingDataset(
+            path=_h5_path,
+            num_steps=int(cfg.data.dataset.num_steps),
+            frameskip=int(cfg.data.dataset.frameskip),
+            img_size=cfg.img_size,
+            keys_to_cache=list(cfg.data.dataset.get('keys_to_cache', [])) or None,
+        )
+        transforms = []  # pixel stacking & normalisation handled inside FrameStackingDataset
+    else:
+        dataset = swm.data.load_dataset(
+            _h5_path,
+            transform=None,
+            **_ds_cfg,
+        )
+        transforms = [get_img_preprocessor(
+            source='pixels', target='pixels', img_size=cfg.img_size)]
 
     with open_dict(cfg):
         for col in cfg.data.dataset.keys_to_load:
@@ -107,25 +121,38 @@ def run(cfg):
     ##       model / optim      ##
     ##############################
 
+    _in_chans = cfg.get("in_chans", 3)
     encoder = spt.backbone.utils.vit_hf(
         cfg.encoder_scale,
         patch_size=cfg.patch_size,
         image_size=cfg.img_size,
         pretrained=False,
         use_mask_token=False,
+        num_channels=_in_chans,  # ViTConfig kwarg; default 3, set to 9 for frame stacking
     )
 
     hidden_dim = encoder.config.hidden_size
     embed_dim = cfg.wm.get("embed_dim", hidden_dim)
     effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim
 
-    predictor = ARPredictor(
-        num_frames=cfg.wm.history_size,
-        input_dim=embed_dim,
-        hidden_dim=hidden_dim,
-        output_dim=hidden_dim,
-        **cfg.predictor,
-    )
+    _pred_type = cfg.get("predictor_type", "transformer")
+    if _pred_type == "mamba":
+        from module_mamba import MambaPredictor
+        predictor = MambaPredictor(
+            num_frames=cfg.wm.history_size,
+            input_dim=embed_dim,
+            hidden_dim=hidden_dim,
+            output_dim=hidden_dim,
+            **cfg.predictor,
+        )
+    else:
+        predictor = ARPredictor(
+            num_frames=cfg.wm.history_size,
+            input_dim=embed_dim,
+            hidden_dim=hidden_dim,
+            output_dim=hidden_dim,
+            **cfg.predictor,
+        )
 
     action_encoder = Embedder(input_dim=effective_act_dim, emb_dim=embed_dim)
 

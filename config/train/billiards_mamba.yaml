@@ -1,0 +1,75 @@
+defaults:
+  - _self_
+  - data: billiards
+
+# ── Experiment identity ────────────────────────────────────────────────────
+output_model_name: lewm_mamba
+# Switch predictor architecture: "mamba" | "transformer"
+predictor_type: mamba
+subdir: ${hydra:job.id}
+
+# ── Identical to billiards_small.yaml below this line ─────────────────────
+num_workers: 6
+train_split: 0.9
+seed: 3072
+img_size: 96
+patch_size: 8
+encoder_scale: tiny
+dump_object: True
+
+trainer:
+  max_epochs: 10
+  devices: auto
+  accelerator: gpu
+  precision: "32"
+  gradient_clip_val: 1.0
+
+loader:
+  batch_size: 128
+  num_workers: 0
+  persistent_workers: False
+  pin_memory: False
+
+optimizer:
+  type: AdamW
+  lr: 5e-5
+  weight_decay: 1e-3
+
+wandb:
+  enabled: False
+  config:
+    entity: lewm
+    project: lewm
+    name: ${output_model_name}
+    id: ${subdir}
+    resume: allow
+    log_model: False
+
+wm:
+  type: lewm
+  history_size: 3
+  num_preds: 1
+  embed_dim: 32
+
+# ── Mamba predictor hyperparameters ───────────────────────────────────────
+# depth  : number of MambaBlock layers (matches Transformer depth=6)
+# d_state: SSM state dimension N (hidden-state size per channel)
+# d_conv : causal conv kernel width for local temporal mixing
+# expand : inner-dim multiplier  (d_inner = expand * hidden_dim)
+#
+# Transformer kwargs (heads, mlp_dim, dim_head) are not used by
+# MambaPredictor but are harmless if included; omitted here for clarity.
+predictor:
+  depth: 6
+  d_state: 16
+  d_conv: 4
+  expand: 2
+  dropout: 0.0
+  emb_dropout: 0.0
+
+loss:
+  sigreg:
+    weight: 0.01
+    kwargs:
+      knots: 17
+      num_proj: 1024

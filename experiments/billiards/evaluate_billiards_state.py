@@ -337,40 +337,55 @@ def main():
     print("=" * 60)
 
     f, ep_len, ep_offset = load_dataset()
-    results = []
 
-    # Combo A: ep 500 frame 0
-    s, d = evaluate(
-        f, ep_len, ep_offset,
-        label           = "Combo A — ep 500 frame 0 (CEM pots target ball)",
-        start_ep        = 500,
-        start_frame_idx = 0,
-        out_path        = Path(__file__).parent / "eval_state_A.png",
-    )
-    results.append(("Combo A (ep 500)", s, d))
+    SEEDS = [0, 1, 2, 3, 4]
+    all_results = {"Combo A (ep 500)": [], "Combo B (ep 100)": []}
 
-    # Combo B: ep 100 frame 0
-    s, d = evaluate(
-        f, ep_len, ep_offset,
-        label           = "Combo B — ep 100 frame 0 (CEM pots target ball)",
-        start_ep        = 100,
-        start_frame_idx = 0,
-        out_path        = Path(__file__).parent / "eval_state_B.png",
-    )
-    results.append(("Combo B (ep 100)", s, d))
+    for seed in SEEDS:
+        np.random.seed(seed)
+        print(f"\n{'#' * 60}")
+        print(f"  SEED {seed}")
+        print(f"{'#' * 60}")
+
+        # Combo A: ep 500 frame 0
+        s, d = evaluate(
+            f, ep_len, ep_offset,
+            label           = f"Combo A — ep 500 frame 0 (seed={seed})",
+            start_ep        = 500,
+            start_frame_idx = 0,
+            out_path        = Path(__file__).parent / f"eval_state_A_seed{seed}.png",
+        )
+        all_results["Combo A (ep 500)"].append((seed, s, d))
+
+        # Combo B: ep 100 frame 0
+        s, d = evaluate(
+            f, ep_len, ep_offset,
+            label           = f"Combo B — ep 100 frame 0 (seed={seed})",
+            start_ep        = 100,
+            start_frame_idx = 0,
+            out_path        = Path(__file__).parent / f"eval_state_B_seed{seed}.png",
+        )
+        all_results["Combo B (ep 100)"].append((seed, s, d))
 
     f.close()
 
     print("\n" + "=" * 60)
-    print("  SUMMARY")
+    print("  SUMMARY (5 seeds)")
     print("=" * 60)
-    for name, success, dist in results:
-        status = "SUCCESS ✓" if success else "FAILURE ✗"
-        print(f"  {name:25s}  {status}   best_dist_to_pocket = {dist:.2f}  "
-              f"(pocket_radius={POCKET_RADIUS})")
+    for combo_name, runs in all_results.items():
+        successes = sum(1 for _, s, _ in runs if s)
+        best_dists = [d for _, _, d in runs]
+        print(f"\n  {combo_name}")
+        print(f"    Success rate : {successes}/{len(runs)}")
+        print(f"    Best dist    : {min(best_dists):.2f} / {max(best_dists):.2f} / "
+              f"{sum(best_dists)/len(best_dists):.2f}  (min/max/mean)")
+        for seed, s, d in runs:
+            status = "SUCCESS ✓" if s else "FAILURE ✗"
+            print(f"    seed={seed}  {status}  dist={d:.2f}")
     print("=" * 60)
-    print("\n[done] Results saved as eval_state_A.png / eval_state_B.png")
+    print(f"\n[done] pocket_radius = {POCKET_RADIUS}")
 
 
 if __name__ == "__main__":
     main()
+

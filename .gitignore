@@ -10,3 +10,10 @@ wandb/
 *.egg-info/
 /lewm
 test_*.h5
+environment*.json
+requirements_frozen*.txt
+lightning_logs/
+.DS_Store
+config/.DS_Store
+lewm_billiards_blog*.md
+linkedin_post*.md
