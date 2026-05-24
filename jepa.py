@@ -17,6 +17,7 @@ class JEPA(nn.Module):
         action_encoder,
         projector=None,
         pred_proj=None,
+        aux_head=None,
     ):
         super().__init__()
 
@@ -25,6 +26,7 @@ class JEPA(nn.Module):
         self.action_encoder = action_encoder
         self.projector = projector or nn.Identity()
         self.pred_proj = pred_proj or nn.Identity()
+        self.aux_head = aux_head  # optional: auxiliary state supervision head
 
     def encode(self, info):
         """Encode observations and actions into embeddings.
@@ -35,7 +37,8 @@ class JEPA(nn.Module):
         b = pixels.size(0)
         pixels = rearrange(pixels, "b t ... -> (b t) ...") # flatten for encoding
         output = self.encoder(pixels, interpolate_pos_encoding=True)
-        pixels_emb = output.last_hidden_state[:, 0]  # cls token
+        pixels_emb = output.last_hidden_state[:, 0]  # cls token (B*T, hidden_dim)
+        info["cls_token"] = rearrange(pixels_emb, "(b t) d -> b t d", b=b)  # pre-projector
         emb = self.projector(pixels_emb)
         info["emb"] = rearrange(emb, "(b t) d -> b t d", b=b)
 

@@ -41,6 +41,17 @@ def lejepa_forward(self, batch, stage, cfg):
     output["sigreg_loss"] = self.sigreg(emb.transpose(0, 1))
     output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]
 
+    # Auxiliary state supervision (optional — prevents encoder evicting position)
+    if getattr(self.model, "aux_head", None) is not None:
+        aux_lambd = cfg.loss.aux_state.weight
+        cls = output["cls_token"]           # (B, T, hidden_dim)
+        state = batch["state"].float()      # (B, T, state_dim)
+        B_aux, T_aux = cls.shape[:2]
+        aux_pred = self.model.aux_head(cls.reshape(B_aux * T_aux, -1))
+        aux_target = state.reshape(B_aux * T_aux, -1)
+        output["aux_loss"] = (aux_pred - aux_target).pow(2).mean()
+        output["loss"] = output["loss"] + aux_lambd * output["aux_loss"]
+
     losses_dict = {f"{stage}/{k}": v.detach()
                    for k, v in output.items() if "loss" in k}
     self.log_dict(losses_dict, on_step=True, sync_dist=True)
@@ -177,6 +188,14 @@ def run(cfg):
         projector=projector,
         pred_proj=predictor_proj,
     )
+
+    # Attach auxiliary state head (only when use_aux_loss: true in config)
+    if cfg.get("use_aux_loss", False):
+        from module_auxloss import AuxStateHead
+        world_model.aux_head = AuxStateHead(
+            hidden_dim=hidden_dim,
+            state_dim=cfg.loss.aux_state.state_dim,
+        )
 
     max_epochs = cfg.trainer.max_epochs
     optimizers = {

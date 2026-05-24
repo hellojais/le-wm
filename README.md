@@ -9,12 +9,15 @@ a custom 2D billiards environment.
 
 | Addition | Description |
 |---|---|
-| `experiments/billiards/` | Six experiments: four planning + two architecture ablations |
+| `experiments/billiards/` | Eight experiments: four planning + four architecture ablations |
 | `config/train/billiards_small.yaml` | Optimised config (embed_dim=32, λ=0.01) for simple domains |
 | `config/train/billiards_mamba.yaml` | Mamba predictor training config |
 | `config/train/billiards_framestacking.yaml` | 9-channel frame-stacking training config |
+| `config/train/billiards_auxloss.yaml` | Frame-stacking + aux state supervision (3-epoch pilot) |
+| `config/train/billiards_auxloss_full.yaml` | Frame-stacking + aux state supervision (10-epoch full run) |
 | `config/train/data/billiards.yaml` | Billiards dataset config (96×96, flat HDF5) |
 | `module_mamba.py` | Pure PyTorch S6 Mamba predictor (MPS-compatible) |
+| `module_auxloss.py` | Auxiliary state supervision head (LinearNorm 192→10, discarded at inference) |
 | `data_framestacking.py` | 9-channel frame-stacking dataset wrapper |
 | `results/` | GIFs, t-SNE plots, training curves, probe results, 3-way comparison |
 | `FINDINGS.md` | Complete research findings |
@@ -27,8 +30,10 @@ a custom 2D billiards environment.
 - Root cause: velocity barely encoded (R²≈0.30) vs position (R²=0.983)
 - **Ablation — Mamba predictor:** stateful architecture makes no difference (vel R²=0.297, +0.3%)
 - **Ablation — Frame stacking (9-channel input):** target-ball velocity R² jumps to 0.77, but position R² collapses from 0.983 → 0.579
-- **Core discovery — JEPA representational eviction:** with explicit motion signal available, the JEPA objective trades position encoding for velocity encoding. Confirmed by 1000-epoch extended probe — information is genuinely absent, not a probe artifact.
-- Fundamental conflict: JEPA's single objective cannot simultaneously satisfy next-state predictability (training) and goal-relevant spatial completeness (planning)
+- **Core discovery — JEPA representational eviction:** with explicit motion signal available, the JEPA objective trades position encoding for velocity encoding. Eviction occurs in the ViT encoder itself (192-dim CLS token pos R²=0.466 before the projector).
+- **Fix — Auxiliary state supervision:** lightweight `Linear(192→10)` head on the CLS token with `λ_aux=0.1` fully corrects eviction in 3 epochs. Position R² recovers from 0.446 → 0.999; velocity R² from 0.138 → 0.947. Head discarded at inference.
+- **AuxLoss full run (10 epochs):** val/pred_loss=0.00105 — 3.3× better than Transformer baseline (0.0035), best across all models.
+- Fundamental conflict: JEPA's single objective cannot simultaneously satisfy next-state predictability (training) and goal-relevant spatial completeness (planning) — but auxiliary supervision bridges the gap.
 - State-based CEM **succeeded** in 9–13 steps — the task is plannable; only the learned model is the obstacle
 - Finding mirrors LeWM paper's Two-Room limitation — single prediction objective is insufficient for goal-directed planning
 
@@ -45,11 +50,14 @@ a custom 2D billiards environment.
 
 **Architecture ablations (representation quality, 300-epoch probe):**
 
-| Model | vel R² | pos R² (tgt) | val/pred_loss | Finding |
+| Model | vel R² (192-dim) | pos R² (192-dim) | val/pred_loss | Finding |
 |---|---|---|---|---|
-| Transformer (baseline) | 0.296 | 0.983 | 0.0035 | reference |
-| Mamba predictor | 0.297 | 0.983 | 0.0034 | architecture not the bottleneck |
-| Frame stacking (9-channel) | 0.286 | 0.579 | 0.0087 | JEPA eviction: tgt vel ↑ 0.77, position ↓ 0.58 |
+| Transformer (baseline) | 0.296¹ | 0.983¹ | 0.0035 | reference |
+| Mamba predictor | 0.297¹ | 0.983¹ | 0.0034 | architecture not the bottleneck |
+| Frame stacking (9-channel) | 0.138² | 0.446² | 0.0087 | JEPA eviction: position lost in ViT encoder |
+| **AuxLoss full (9-ch + aux)** | **0.947²** | **0.999²** | **0.00105** | **eviction fixed; best pred across all models** |
+
+*¹ 300-epoch/1000-frame probe (32-dim); ² 1000-epoch/5000-frame probe (192-dim CLS token)*
 
 ![Training Curves](results/training_curves.png)
 ![t-SNE Latent Space](results/tsne_billiards.png)

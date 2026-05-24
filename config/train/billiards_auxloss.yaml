@@ -1,0 +1,74 @@
+defaults:
+  - _self_
+  - data: billiards
+
+output_model_name: lewm_auxloss
+subdir: ${hydra:job.id}
+
+num_workers: 6
+train_split: 0.9
+seed: 3072
+img_size: 96
+patch_size: 8
+encoder_scale: tiny
+dump_object: True
+
+# ── Frame-stacking + auxiliary state supervision ─────────────────────────────
+# Stack 3 consecutive frames (9 input channels) so the ViT sees optical-flow,
+# PLUS supervise the 192-dim CLS token to retain absolute position information.
+use_frame_stacking: true
+in_chans: 9
+
+use_aux_loss: true          # builds AuxStateHead and adds aux_loss to total loss
+
+trainer:
+  max_epochs: 3             # 3-epoch pilot; extend to 10 if pos R² recovers
+  devices: auto
+  accelerator: gpu
+  precision: "32"
+  gradient_clip_val: 1.0
+
+loader:
+  batch_size: 128
+  num_workers: 0
+  persistent_workers: False
+  pin_memory: False
+
+optimizer:
+  type: AdamW
+  lr: 5e-5
+  weight_decay: 1e-3
+
+wandb:
+  enabled: False
+  config:
+    entity: lewm
+    project: lewm
+    name: ${output_model_name}
+    id: ${subdir}
+    resume: allow
+    log_model: False
+
+wm:
+  type: lewm
+  history_size: 3
+  num_preds: 1
+  embed_dim: 32
+
+predictor:
+  depth: 6
+  heads: 16
+  mlp_dim: 2048
+  dim_head: 64
+  dropout: 0.1
+  emb_dropout: 0.0
+
+loss:
+  sigreg:
+    weight: 0.01
+    kwargs:
+      knots: 17
+      num_proj: 1024
+  aux_state:
+    weight: 0.1       # λ_aux; pred_loss ~0.006, aux_loss ~0.3-1.0 → λ=0.1 balances magnitudes
+    state_dim: 10     # [cue_x, cue_y, cue_vx, cue_vy, tgt_x, tgt_y, tgt_vx, tgt_vy, pkt_x, pkt_y]
